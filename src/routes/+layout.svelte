@@ -1,5 +1,4 @@
 <script>
-	import { version } from '$app/env';
 	import favicon from '#lib/assets/favicon.svg';
 
 	let { children } = $props();
@@ -10,6 +9,3 @@
 </svelte:head>
 
 {@render children()}
-
-<a href="/changelog" target="_blank">changelog</a>
-<p>build {version}</p>
