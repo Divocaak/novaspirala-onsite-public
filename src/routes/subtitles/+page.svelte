@@ -1,197 +1,262 @@
 <script>
 	import { onMount } from 'svelte';
+	import { PUBLIC_SUBTITLES_WS_URL, PUBLIC_SUBTITLES_URL } from '$app/env/public';
 
-	let { data } = $props();
-
-	let activeLine = $state(null);
-	let connectionStatus = $state('Connecting…');
+	let event = $state(null);
 	let languages = $state([]);
 	let selectedLanguage = $state('');
+	let venueLabel = $state('');
 	let lines = $state([]);
-	let loadingSubtitles = $state(false);
-	let subtitleError = $state('');
+	let activeLine = $state(0);
+	let loading = $state(true);
+	let error = $state('');
+	let socket;
 
 	async function loadLanguage(language) {
-		if (!data.event?.subtitles_name || !language) return;
+		if (!event || !language) return;
 
-		loadingSubtitles = true;
-		subtitleError = '';
+		selectedLanguage = language;
+		error = '';
 
 		try {
-			const params = new URLSearchParams({ folder: data.event.subtitles_name, lang: language });
-			const response = await fetch(`/api/subtitles?${params}`);
+			const params = new URLSearchParams({
+				folder: event.subtitles_name,
+				lang: language
+			});
 
-			if (!response.ok) throw new Error('Could not load this language.');
-			const result = await response.json();
-			languages = result.languages;
-			selectedLanguage = result.language;
-			lines = result.lines;
-		} catch (error) {
-			subtitleError = error.message;
-		} finally {
-			loadingSubtitles = false;
+			const response = await fetch(`/api/subtitles/getFile?${params}`);
+
+			if (!response.ok) {
+				throw new Error(`Subtitle request failed: ${response.status}`);
+			}
+
+			const content = await response.text();
+			lines = content.split(/\r?\n/);
+		} catch (err) {
+			console.error('Could not load subtitle file:', err);
+			lines = [];
+			error = 'Could not load this language.';
 		}
 	}
 
-	onMount(() => {
-		let socket;
+	function connectWebSocket(eventId) {
+		if (socket) {
+			socket.close();
+		}
 
-		async function initialize() {
-			if (!data.event) return;
+		if (!PUBLIC_SUBTITLES_WS_URL) {
+			error = 'The WebSocket URL is not configured.';
+			console.error('PUBLIC_SUBTITLES_WS_URL is empty.');
+			return;
+		}
 
+		socket = new WebSocket(PUBLIC_SUBTITLES_WS_URL);
+
+		socket.addEventListener('open', () => {
+			socket.send(
+				JSON.stringify({
+					type: 'viewer',
+					eventId
+				})
+			);
+		});
+
+		socket.addEventListener('message', (message) => {
 			try {
-				const response = await fetch(
-					`/api/subtitles/getAvailable?folder=${encodeURIComponent(data.event.subtitles_name)}&lang=cs`
-				);
+				const data = JSON.parse(message.data);
 
-				if (response.ok) {
-					const result = await response.json();
-					languages = result.languages;
-					await loadLanguage(languages.includes('cs') ? 'cs' : languages[0]);
-				} else {
-					const fallback = await fetch(
-						`/api/subtitles/getAvailable?folder=${encodeURIComponent(data.event.subtitles_name)}&lang=en`
-					);
-
-					if (fallback.ok) {
-						const result = await fallback.json();
-						languages = result.languages;
-						await loadLanguage(languages[0]);
-					} else subtitleError = 'No subtitle languages found.';
+				if (data.type === 'activate') {
+					activeLine = Number(data.line) || 0;
 				}
-			} catch {
-				subtitleError = 'Failed to load subtitles.';
+			} catch (err) {
+				console.error('Invalid WebSocket message:', err);
 			}
+		});
 
-			if (!data.wsUrl) {
-				connectionStatus = 'WebSocket URL not configured';
+		socket.addEventListener('error', (err) => {
+			console.error('Subtitle WebSocket error:', err);
+			error = 'Could not connect to the live subtitles.';
+		});
+
+		socket.addEventListener('close', (closeEvent) => {
+			console.info('Subtitle WebSocket closed:', {
+				code: closeEvent.code,
+				reason: closeEvent.reason,
+				wasClean: closeEvent.wasClean
+			});
+		});
+	}
+
+	function handleLanguageChange(event) {
+		loadLanguage(event.currentTarget.value);
+	}
+
+	onMount(() => {
+		const saved = sessionStorage.getItem('subtitleEvent');
+
+		if (!saved) {
+			window.location.replace('/');
+			return;
+		}
+
+		try {
+			const result = JSON.parse(saved);
+
+			event = result.event ?? null;
+			languages = result.languages ?? [];
+			venueLabel = result.venueLabel ?? '';
+
+			if (!event || !event.id || !event.subtitles_name || languages.length === 0) {
+				window.location.replace('/');
 				return;
 			}
 
-			socket = new WebSocket(data.wsUrl);
+			const defaultLanguage = languages.includes('cs') ? 'cs' : languages[0];
 
-			socket.addEventListener('open', () => {
-				connectionStatus = 'Connected';
-				socket.send(JSON.stringify({ type: 'viewer', eventId: data.event.id }));
-			});
+			selectedLanguage = defaultLanguage;
 
-			socket.addEventListener('message', (event) => {
-				let message;
+			// Fetch only the selected TXT file.
+			loadLanguage(defaultLanguage);
 
-				try {
-					message = JSON.parse(event.data);
-				} catch {
-					return;
-				}
-
-				if (message.type === 'activate') activeLine = message.line;
-			});
-
-			socket.addEventListener('error', () => {
-				connectionStatus = 'Connection error';
-			});
-
-			socket.addEventListener('close', () => {
-				connectionStatus = 'Disconnected';
-			});
+			// Join the existing event room on the WebSocket server.
+			connectWebSocket(event.id);
+		} catch (err) {
+			console.error('Could not initialize subtitles:', err);
+			window.location.replace('/');
+		} finally {
+			loading = false;
 		}
 
-		initialize();
-
-		return () => socket?.close();
+		return () => {
+			if (socket) {
+				socket.close();
+			}
+		};
 	});
 
-	let displayedSubtitle = $derived(
-		Number.isInteger(activeLine) && activeLine >= 0 ? (lines[activeLine] ?? '') : ''
-	);
+	let currentText = $derived(activeLine > 0 ? (lines[activeLine] ?? '') : '');
 </script>
 
 <svelte:head>
-	<title>
-		{data.venueLabel ? `${data.venueLabel} — Titulky` : 'Titulky'}
-	</title>
+	<title>Live subtitles</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
 </svelte:head>
 
-{#if data.event}
-	<main style:color={data.event.text_color} style:background-color={data.event.background_color}>
-		<p class="venue">{data.venueLabel}</p>
-		<p class="event">{data.event.label}</p>
-
-		{#if languages.length > 0}
-			<label class="language-picker">
-				Language
-				<select
-					value={selectedLanguage}
-					onchange={(event) => loadLanguage(event.currentTarget.value)}
-					disabled={loadingSubtitles}
-				>
-					{#each languages as language}
-						<option value={language}>{language.toUpperCase()}</option>
-					{/each}
-				</select>
-			</label>
-		{/if}
-
-		{#if subtitleError}
-			<p>{subtitleError}</p>
-		{:else if loadingSubtitles}
-			<p>Loading subtitles…</p>
-		{:else}
-			<div class="subtitle" aria-live="polite">
-				{displayedSubtitle}
-			</div>
-		{/if}
-
-		<p class="status">{connectionStatus}</p>
-	</main>
-{:else}
+{#if loading}
 	<main>
-		<p class="venue">{data.venueLabel}</p>
-		<h1>No event is currently running at this venue.</h1>
+		<p>Loading subtitles…</p>
+	</main>
+{:else if event}
+	<main>
+		<header>
+			<a href="/">Back</a>
+
+			<div class="event-info">
+				{#if venueLabel}
+					<p class="venue">{venueLabel}</p>
+				{/if}
+
+				<h1>{event.label}</h1>
+			</div>
+
+			{#if languages.length > 1}
+				<label>
+					Language
+
+					<select value={selectedLanguage} onchange={handleLanguageChange}>
+						{#each languages as language}
+							<option value={language}>
+								{language.toUpperCase()}
+							</option>
+						{/each}
+					</select>
+				</label>
+			{/if}
+		</header>
+
+		{#if error}
+			<p class="error" role="alert">{error}</p>
+		{/if}
+
+		<section aria-live="polite" aria-atomic="true">
+			{#if currentText}
+				<p>{currentText}</p>
+			{/if}
+		</section>
 	</main>
 {/if}
 
 <style>
+	:global(body) {
+		margin: 0;
+		font-family: sans-serif;
+	}
+
 	main {
 		min-height: 100vh;
 		box-sizing: border-box;
+		padding: 1.25rem;
 		display: flex;
 		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 1rem;
-		padding: 2rem;
-		text-align: center;
+        color: white;
+        background-color: black;
 	}
 
-	.venue,
-	.status {
-		font-size: 0.9rem;
+	header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.event-info {
+		flex: 1;
+		min-width: 160px;
+	}
+
+	.venue {
+		margin: 0 0 0.3rem;
 		opacity: 0.7;
 	}
 
-	.event {
-		font-size: 1rem;
-		opacity: 0.8;
+	h1 {
+		margin: 0;
+		font-size: 1.25rem;
 	}
 
-	.language-picker {
+	label {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
 	}
 
 	select {
+		max-width: 100%;
 		font: inherit;
-		padding: 0.5rem;
+		padding: 0.4rem;
 	}
 
-	.subtitle {
-		width: 100%;
-		font-size: clamp(2rem, 7vw, 5rem);
-		font-weight: 600;
-		line-height: 1.2;
-		overflow-wrap: anywhere;
+	section {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		text-align: center;
+	}
+
+	section p {
+		max-width: 1100px;
+		font-size: clamp(1.8rem, 5vw, 4rem);
+		line-height: 1.35;
 		white-space: pre-wrap;
+	}
+
+	a {
+		color: inherit;
+	}
+
+	.error {
+		text-align: center;
 	}
 </style>

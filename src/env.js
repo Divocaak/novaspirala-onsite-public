@@ -19,10 +19,12 @@ export const variables = defineEnvVars({
 	DB_SOCKET: {
 		schema: (value) => value || undefined
 	},
-	PUBLIC_SUBTITLES_ROOT: {
-		schema: (value) => value
+	PUBLIC_SUBTITLES_URL: {
+		schema: (value) => value,
+		public: true
 	},
 	PUBLIC_SUBTITLES_WS_URL: {
-		schema: (value) => value
+		schema: (value) => value,
+		public: true
 	}
 });
