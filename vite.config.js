@@ -1,19 +1,26 @@
-import adapter from '@sveltejs/adapter-auto';
+import fs from 'node:fs';
+import path from 'node:path';
+import adapter from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
+
+
+const packageJson = JSON.parse(
+	fs.readFileSync(path.resolve('package.json'), 'utf8')
+);
+
 
 export default defineConfig({
 	plugins: [
 		sveltekit({
+			version: {
+				name: packageJson.version
+			},
 			compilerOptions: {
 				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-
-			// adapter-auto only supports some environments, see https://svelte.dev/docs/kit/adapter-auto for a list.
-			// If your environment is not supported, or you settled on a specific environment, switch out the adapter.
-			// See https://svelte.dev/docs/kit/adapters for more information about adapters.
 			adapter: adapter()
 		})
 	]

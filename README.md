@@ -15,7 +15,7 @@ To recreate this project with the same configuration:
 
 ```sh
 # recreate this project
-npx sv@1.1.1 create --template minimal --no-types --add prettier eslint playwright="demo:no" --install npm novaspirala_onsite_public
+npx sv@1.1.1 create --template minimal --no-types --add prettier eslint playwright="demo:no" --install npm .
 ```
 
 ## Adding features
@@ -52,5 +52,3 @@ npm run build
 ```
 
 You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
