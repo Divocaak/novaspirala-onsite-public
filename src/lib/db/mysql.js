@@ -15,7 +15,7 @@ export const pool = mysql.createPool({
     user: DB_USER,
     password: DB_PASSWORD,
     database: DB_NAME,
-    socketPath: DB_SOCKET || undefined, // Optional socketPath
+    socketPath: DB_SOCKET || undefined,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
