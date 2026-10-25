@@ -1,5 +1,5 @@
 <script>
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { PUBLIC_SUBTITLES_WS_URL, PUBLIC_SUBTITLES_URL } from '$app/env/public';
 
 	let event = $state(null);
@@ -10,7 +10,18 @@
 	let activeLine = $state(0);
 	let loading = $state(true);
 	let error = $state('');
+
 	let socket;
+	let subtitleSection = $state();
+	let subtitleElement = $state();
+
+	let fitRequest = 0;
+
+	const MAX_FONT_SIZE = 40;
+	const MIN_FONT_SIZE = 1;
+	const FONT_FIT_ITERATIONS = 14;
+
+	let currentText = $derived(activeLine > 0 ? (lines[activeLine] ?? '') : '');
 
 	async function loadLanguage(language) {
 		if (!event || !language) return;
@@ -19,19 +30,10 @@
 		error = '';
 
 		try {
-			const params = new URLSearchParams({
-				folder: event.subtitles_name,
-				lang: language
-			});
-
+			const params = new URLSearchParams({ folder: event.subtitles_name, lang: language });
 			const response = await fetch(`/api/subtitles/getFile?${params}`);
-
-			if (!response.ok) {
-				throw new Error(`Subtitle request failed: ${response.status}`);
-			}
-
-			const content = await response.text();
-			lines = content.split(/\r?\n/);
+			if (!response.ok) throw new Error(`Subtitle request failed: ${response.status}`);
+			lines = (await response.text()).split(/\r?\n/);
 		} catch (err) {
 			console.error('Could not load subtitle file:', err);
 			lines = [];
@@ -40,9 +42,7 @@
 	}
 
 	function connectWebSocket(eventId) {
-		if (socket) {
-			socket.close();
-		}
+		if (socket) socket.close();
 
 		if (!PUBLIC_SUBTITLES_WS_URL) {
 			error = 'The WebSocket URL is not configured.';
@@ -51,23 +51,14 @@
 		}
 
 		socket = new WebSocket(PUBLIC_SUBTITLES_WS_URL);
-
 		socket.addEventListener('open', () => {
-			socket.send(
-				JSON.stringify({
-					type: 'viewer',
-					eventId
-				})
-			);
+			socket.send(JSON.stringify({ type: 'viewer', eventId }));
 		});
 
 		socket.addEventListener('message', (message) => {
 			try {
 				const data = JSON.parse(message.data);
-
-				if (data.type === 'activate') {
-					activeLine = Number(data.line) || 0;
-				}
+				if (data.type === 'activate') activeLine = Number(data.line) || 0;
 			} catch (err) {
 				console.error('Invalid WebSocket message:', err);
 			}
@@ -115,10 +106,7 @@
 
 			selectedLanguage = defaultLanguage;
 
-			// Fetch only the selected TXT file.
 			loadLanguage(defaultLanguage);
-
-			// Join the existing event room on the WebSocket server.
 			connectWebSocket(event.id);
 		} catch (err) {
 			console.error('Could not initialize subtitles:', err);
@@ -130,17 +118,71 @@
 		return () => {
 			if (socket) {
 				socket.close();
+				socket = undefined;
 			}
 		};
 	});
 
-	let currentText = $derived(activeLine > 0 ? (lines[activeLine] ?? '') : '');
-</script>
+	async function fitSubtitle() {
+		const request = ++fitRequest;
+		await tick();
 
-<svelte:head>
-	<title>Live subtitles</title>
-	<meta name="viewport" content="width=device-width, initial-scale=1" />
-</svelte:head>
+		if (request !== fitRequest) return;
+		const section = subtitleSection;
+		const element = subtitleElement;
+
+		if (!section || !element) return;
+		const availableHeight = section.clientHeight;
+		const availableWidth = element.clientWidth;
+
+		if (!availableWidth || !availableHeight) return;
+		let low = MIN_FONT_SIZE;
+		let high = MAX_FONT_SIZE;
+		let best = MIN_FONT_SIZE;
+
+		for (let i = 0; i < FONT_FIT_ITERATIONS; i++) {
+			const middle = (low + high) / 2;
+			element.style.fontSize = `${middle}px`;
+
+			const fits =
+				element.scrollWidth <= element.clientWidth && element.scrollHeight <= availableHeight;
+			if (fits) {
+				best = middle;
+				low = middle;
+			} else {
+				high = middle;
+			}
+		}
+
+		element.style.fontSize = `${best}px`;
+	}
+
+	// Refit when the subtitle or its rendered element changes.
+	$effect(() => {
+		currentText;
+		subtitleSection;
+		subtitleElement;
+
+		fitSubtitle();
+	});
+
+	// Handle viewport changes, including device rotation.
+	$effect(() => {
+		const section = subtitleSection;
+		if (!section) return;
+		const observer = new ResizeObserver(fitSubtitle);
+		observer.observe(section);
+
+		window.addEventListener('resize', fitSubtitle);
+		window.addEventListener('orientationchange', fitSubtitle);
+
+		return () => {
+			observer.disconnect();
+			window.removeEventListener('resize', fitSubtitle);
+			window.removeEventListener('orientationchange', fitSubtitle);
+		};
+	});
+</script>
 
 {#if loading}
 	<main>
@@ -151,26 +193,14 @@
 		<header>
 			<a href="/">Back</a>
 
-			<div class="event-info">
-				{#if venueLabel}
-					<p class="venue">{venueLabel}</p>
-				{/if}
-
-				<h1>{event.label}</h1>
-			</div>
-
 			{#if languages.length > 1}
-				<label>
-					Language
-
-					<select value={selectedLanguage} onchange={handleLanguageChange}>
-						{#each languages as language}
-							<option value={language}>
-								{language.toUpperCase()}
-							</option>
-						{/each}
-					</select>
-				</label>
+				<select value={selectedLanguage} onchange={handleLanguageChange}>
+					{#each languages as language}
+						<option value={language}>
+							{language.toUpperCase()}
+						</option>
+					{/each}
+				</select>
 			{/if}
 		</header>
 
@@ -178,78 +208,83 @@
 			<p class="error" role="alert">{error}</p>
 		{/if}
 
-		<section aria-live="polite" aria-atomic="true">
+		<section bind:this={subtitleSection} aria-live="polite" aria-atomic="true">
 			{#if currentText}
-				<p>{currentText}</p>
+				<p bind:this={subtitleElement}>{currentText}</p>
 			{/if}
 		</section>
 	</main>
 {/if}
 
 <style>
+	:global(html),
 	:global(body) {
+		width: 100%;
+		height: 100%;
 		margin: 0;
-		font-family: sans-serif;
+		padding: 0;
+		background: black;
+		overflow: hidden;
+	}
+
+	:global(body) {
+		position: fixed;
+		inset: 0;
+	}
+
+	:global(*) {
+		box-sizing: border-box;
 	}
 
 	main {
-		min-height: 100vh;
-		box-sizing: border-box;
-		padding: 1.25rem;
 		display: flex;
 		flex-direction: column;
-        color: white;
-        background-color: black;
+		width: 100%;
+		height: 100vh;
+		height: 100dvh;
+		padding: 1.25rem;
+		overflow: hidden;
+		color: white;
+		background: black;
 	}
 
 	header {
 		display: flex;
+		flex: 0 0 auto;
 		align-items: center;
 		justify-content: space-between;
-		gap: 1rem;
 		flex-wrap: wrap;
-	}
-
-	.event-info {
-		flex: 1;
-		min-width: 160px;
-	}
-
-	.venue {
-		margin: 0 0 0.3rem;
-		opacity: 0.7;
-	}
-
-	h1 {
-		margin: 0;
-		font-size: 1.25rem;
-	}
-
-	label {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
+		gap: 1rem;
 	}
 
 	select {
 		max-width: 100%;
-		font: inherit;
 		padding: 0.4rem;
+		font: inherit;
 	}
 
 	section {
-		flex: 1;
 		display: flex;
+		flex: 1 1 0;
 		align-items: center;
 		justify-content: center;
+		width: 100%;
+		min-width: 0;
+		min-height: 0;
+		overflow: hidden;
 		text-align: center;
 	}
 
 	section p {
+		width: 100%;
 		max-width: 1100px;
-		font-size: clamp(1.8rem, 5vw, 4rem);
-		line-height: 1.35;
+		margin: 0;
+		font-size: 1px;
+		line-height: 1.15;
 		white-space: pre-wrap;
+		overflow-wrap: normal;
+		word-break: keep-all;
+		hyphens: none;
 	}
 
 	a {
@@ -257,6 +292,7 @@
 	}
 
 	.error {
+		flex: 0 0 auto;
 		text-align: center;
 	}
 </style>
