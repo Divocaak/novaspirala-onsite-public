@@ -22,18 +22,11 @@
 		error = '';
 
 		try {
-			const params = new URLSearchParams({
-				now: getBrowserDateTime()
-			});
-
+			const params = new URLSearchParams({ now: getBrowserDateTime() });
 			const response = await fetch(`/api/subtitles/getAvailable?${params.toString()}`);
-
-			if (!response.ok) {
-				throw new Error(`Request failed: ${response.status}`);
-			}
+			if (!response.ok) throw new Error(`Request failed: ${response.status}`);
 
 			const result = await response.json();
-
 			event = result.event ?? null;
 			languages = result.languages ?? [];
 		} catch (err) {
@@ -61,54 +54,25 @@
 
 	onMount(() => {
 		checkEvent();
-
 		const interval = setInterval(checkEvent, 30000);
-
 		return () => clearInterval(interval);
 	});
 </script>
 
-<svelte:head>
-	<title>Live subtitles</title>
-	<meta name="viewport" content="width=device-width, initial-scale=1" />
-</svelte:head>
-
 <main>
-	{#if venueLabel}
-		<p class="venue">{venueLabel}</p>
-	{/if}
+	<h1>Nová Spirála</h1>
+	<p>Na Výstavišti</p>
 
-	<h1>Live subtitles</h1>
-
-	{#if loading}
-		<p>Checking for a running event…</p>
-	{:else if error}
-		<p role="alert">{error}</p>
-		<button onclick={checkEvent}>Try again</button>
-	{:else if event && languages.length > 0}
-		<h2>{event.label}</h2>
-		<p>Subtitles are available for this event.</p>
-
-		<button onclick={openSubtitles}> Open subtitles </button>
-	{:else}
-		<p>There is currently no running event with available subtitles.</p>
+	{#if event && languages.length > 0}
+		<button onclick={openSubtitles}>Open subtitles for {event.label}</button>
 	{/if}
 </main>
 
 <style>
-	:global(body) {
-		margin: 0;
-		font-family: sans-serif;
-	}
-
 	main {
 		max-width: 640px;
 		margin: 0 auto;
 		padding: 2rem 1.25rem;
-	}
-
-	.venue {
-		opacity: 0.7;
 	}
 
 	button {
