@@ -21,7 +21,7 @@
 	const MIN_FONT_SIZE = 1;
 	const FONT_FIT_ITERATIONS = 14;
 
-	let currentText = $derived(activeLine > 0 ? (lines[activeLine] ?? '') : '');
+	let currentText = $derived(activeLine >= 0 ? (lines[activeLine] ?? '') : '');
 
 	async function loadLanguage(language) {
 		if (!event || !language) return;
@@ -41,6 +41,10 @@
 		}
 	}
 
+	function handleLanguageChange(event) {
+		loadLanguage(event.currentTarget.value);
+	}
+
 	function connectWebSocket(eventId) {
 		if (socket) socket.close();
 
@@ -58,6 +62,7 @@
 		socket.addEventListener('message', (message) => {
 			try {
 				const data = JSON.parse(message.data);
+				console.log(data);
 				if (data.type === 'activate') activeLine = Number(data.line) || 0;
 			} catch (err) {
 				console.error('Invalid WebSocket message:', err);
@@ -76,10 +81,6 @@
 				wasClean: closeEvent.wasClean
 			});
 		});
-	}
-
-	function handleLanguageChange(event) {
-		loadLanguage(event.currentTarget.value);
 	}
 
 	onMount(() => {
@@ -223,7 +224,6 @@
 		height: 100%;
 		margin: 0;
 		padding: 0;
-		background: black;
 		overflow: hidden;
 	}
 
@@ -244,8 +244,6 @@
 		height: 100dvh;
 		padding: 1.25rem;
 		overflow: hidden;
-		color: white;
-		background: black;
 	}
 
 	header {

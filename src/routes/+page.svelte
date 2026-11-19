@@ -64,28 +64,6 @@
 	<p>Na Výstavišti</p>
 
 	{#if event && languages.length > 0}
-		<button onclick={openSubtitles}>Open subtitles for {event.label}</button>
+		<button onclick={openSubtitles}>{event.label}</button>
 	{/if}
 </main>
-
-<style>
-	main {
-		max-width: 640px;
-		margin: 0 auto;
-		padding: 2rem 1.25rem;
-	}
-
-	button {
-		padding: 0.9rem 1.2rem;
-		border: 0;
-		border-radius: 0.4rem;
-		background: #222;
-		color: #fff;
-		font: inherit;
-		cursor: pointer;
-	}
-
-	button:hover {
-		background: #444;
-	}
-</style>
