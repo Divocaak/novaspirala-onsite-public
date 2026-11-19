@@ -4,6 +4,15 @@
 
 	const md = new MarkdownIt();
 	const source = `
+### build 0.0.3, release 19. 11. 2025
+#### 1) upraveno
+- černé pozadí, bílý text
+- upravený text na tlačítku (název show)
+
+#### 2) opraveno
+- nezborazoval se 0. řádek titulků
+
+
 ### build 0.0.2, release 25. 10. 2025
 #### 1) upraveno
 - vizuál stránky s titulky
